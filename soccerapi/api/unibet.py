@@ -1,4 +1,5 @@
 import re
+import pandas as pd
 
 from .base import ApiKambi
 
@@ -17,6 +18,24 @@ class ApiUnibet(ApiKambi):
             self._both_teams_to_score,
             self._double_chance,
         ]
+        self.liveParsers = [
+            self._live_result_
+            # self._time_
+        ]
+
+        self.countryURLS = {
+                'NL' : 'netherlands',
+                'UK' : 'england/premier_league',
+                'SP' : 'spain/la_liga',
+                'IT' : 'italy/serie_a',
+                'GE' : 'germany/bundesliga',
+                'FR' : 'france/ligue_1',
+                'CL' : 'champions_league',
+                'EL' : 'europa_league'
+            }
+
+        self.liveMatch = pd.DataFrame([],columns='Home Draw Away Time'.split( ))
+        print(self.liveMatch)
 
     def competition(self, url: str) -> str:
         re_unibet = re.compile(

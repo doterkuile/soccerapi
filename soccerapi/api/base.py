@@ -26,6 +26,7 @@ class ApiBase(abc.ABC):
         competition = self.competition(url)
         data_to_parse = self._requests(competition)
 
+
         for data, parser in zip(data_to_parse, self.parsers):
             try:
                 odds.append(parser(data))
@@ -46,6 +47,52 @@ class ApiBase(abc.ABC):
             msg = f'No odds in {url} have been found.'
             raise NoOddsError(msg)
 
+    def parseLiveData(self, url: str, matchId: int) -> list:
+        """parse live data: Time, Home Draw Away, put in dataframe and then plot"""
+
+        competition = self.competition(url)
+        data = self._requests(competition)[0]
+        odds = {}
+        for event in data['events']:
+            if event['event']['id'] == matchId:
+                return self._live_result_(event)
+
+        return odds
+
+
+    def getMatchIds(self, country_code:str=None) -> list:
+        """Get the match id's of current matches"""
+        # competition = self.competition(url)
+        matches = []
+
+        competition = ""
+        # print(self.countryURLS[country_code])
+
+        try:
+            competition = self.countryURLS[country_code]
+        except KeyError:
+            if not country_code == None:
+                print('Not a valid country code, cannot return matches')
+                return matches
+
+        data = self._requests(competition)[0]
+        for event in data['events']:
+            matches.append(
+                {
+                    'matchId': event['event']['id'],
+                    'homeTeam': event['event']['homeName'],
+                    'awayTeam': event['event']['awayName'],
+
+                }
+            )
+        if len(matches) == 0:
+            print("No matches found")
+
+        return matches
+
+
+
+
 
 class ApiKambi(ApiBase):
     """888sport, unibet and other use the same CDN (eu-offering.kambicdn)
@@ -57,8 +104,12 @@ class ApiKambi(ApiBase):
         """ Parse the raw json requests for full_time_result """
 
         odds = []
+
+
+
         for event in data['events']:
             if event['event']['state'] == 'STARTED':
+
                 continue
             try:
                 full_time_result = {
@@ -86,6 +137,7 @@ class ApiKambi(ApiBase):
         odds = []
         for event in data['events']:
             if event['event']['state'] == 'STARTED':
+
                 continue
             try:
                 both_teams_to_score = {
@@ -129,6 +181,49 @@ class ApiKambi(ApiBase):
                 }
             )
         return odds
+
+    @staticmethod
+    def _live_result_(event: Dict) -> Dict:
+        """ Parse the raw json requests for double chance """
+        odds = {}
+
+        if event['event']['state'] != 'STARTED':
+            """Check if match has started"""
+            return odds
+        if not event['liveData']['matchClock']['running']:
+            """Check if match is not in a break"""
+            return odds
+        try:
+            full_time_result = {
+                '1': event['betOffers'][0]['outcomes'][0].get('odds'),
+                'X': event['betOffers'][0]['outcomes'][1].get('odds'),
+                '2': event['betOffers'][0]['outcomes'][2].get('odds'),
+            }
+        except IndexError:
+            full_time_result = {'1': None,
+                                'X': None,
+                                '2': None,
+            }
+
+        # odds.append(full_time_result)
+        odds = {
+                'time': event['liveData']['matchClock']['minute'],
+                # 'home_team': event['event']['homeName'],
+                # 'away_team': event['event']['awayName'],
+                '1': full_time_result['1'],
+                'X': full_time_result['X'],
+                '2':  full_time_result['2'],
+            }
+
+
+        print("inside fucntion live result")
+
+        return odds
+
+
+    @staticmethod
+    def _time_(data: Dict) -> List:
+        """ Parse the raw json requests for double chance """
 
     def _requests(self, competition: str, market: str = 'IT') -> Tuple[Dict]:
         """Build URL starting from country and league and request data for
