@@ -1,11 +1,21 @@
 import abc
 from typing import Dict, List, Tuple
-
+import pandas as pd
+from soccerapi.api import soccerUtils
 import requests
+import numpy as np
+from soccerapi.api import FootballMatch
+import copy
+import json
+from pathlib import Path
+
 
 
 class ApiBase(abc.ABC):
     """ The Abstract Base Class on which every Api[Boolmaker] is based on. """
+
+    projectDir = Path('.')
+
 
     @abc.abstractmethod
     def _requests(self, competition: str, **kwargs) -> Tuple:
@@ -13,11 +23,27 @@ class ApiBase(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def saveAsCsv(self, df: pd.DataFrame, fileName: str):
+        """save matches to csv files"""
+        pass
+
+
+    @abc.abstractmethod
     def competition(self, url: str) -> str:
         """ Get the competition from url.
         First check it validity using regex,then exstract competition from it
         """
         pass
+    @abc.abstractmethod
+    def setupKeys(self) -> tuple:
+        """setup keys for parsing data of matches"""
+        pass
+
+    @abc.abstractmethod
+    def setupLiveKeys(self) -> tuple:
+        """setup keys for parsing data of matches"""
+        pass
+
 
     def odds(self, url: str) -> List:
         """ Get odds from country-league competition or from url """
@@ -47,17 +73,94 @@ class ApiBase(abc.ABC):
             msg = f'No odds in {url} have been found.'
             raise NoOddsError(msg)
 
-    def parseLiveData(self, url: str, matchId: int) -> list:
+    def parseLiveData(self, countryCode: str) -> pd.DataFrame:
         """parse live data: Time, Home Draw Away, put in dataframe and then plot"""
 
-        competition = self.competition(url)
-        data = self._requests(competition)[0]
-        odds = {}
-        for event in data['events']:
-            if event['event']['id'] == matchId:
-                return self._live_result_(event)
+        matchList = self.parseMatchData(countryCode)
+        for i in range(1):
 
-        return odds
+            match = soccerUtils.convertData(matchList[i],self.setupLiveKeys())
+
+            outside = [match['ID'][0],match['ID'][0], match['ID'][0],match['ID'][0]]
+            inside = 'Time HomeWin Draw AwayWin'.split()
+            hier_index = list(zip(outside,inside))
+            hier_index = pd.MultiIndex.from_tuples(hier_index)
+            values = np.matrix([match['Time'], match['HomeWin'],match['Draw'],match['AwayWin']])
+            df = pd.DataFrame(values, index=hier_index)
+
+        return df
+
+    def createDataFrame(self, country_code:str=None) -> pd.DataFrame:
+        """ Return dataframe containing all matches"""
+        matchData = pd.DataFrame()
+        data = self.parseMatchData(country_code)
+
+        for i in range(len(data)):
+            match = pd.DataFrame(data=soccerUtils.convertData(data[i],self.setupKeys()))
+            testmatch = FootballMatch.FootballMatch(soccerUtils.convertData(data[i],self.setupKeys()))
+            print(testmatch.matchInfo)
+            matchData = pd.concat([matchData, match])
+
+        return matchData
+
+    def parseMatches(self, country_code:str=None):
+        """ Return dataframe containing all matches"""
+        data = self.parseMatchData(country_code)
+        self.matches = self.loadDataFile()
+        for event in data:
+            match = FootballMatch.FootballMatch(soccerUtils.convertData(event, self.setupKeys()))
+            if str(match.matchId) not in self.matches:
+                self.matches[str(match.matchId)] = copy.deepcopy(match.matchInfo)
+            savedMatch = self.matches[str(match.matchId)]
+
+            if match.isLive():
+                print('match is live')
+                liveData = soccerUtils.convertData(event, self.setupLiveKeys())
+                match.addLiveData(liveData)
+                if 'LiveInfo' not in savedMatch:
+                    savedMatch['LiveInfo'] = {}
+                    for key in match.liveInfo:
+                        savedMatch['LiveInfo'][key] = []
+                        savedMatch['LiveInfo'][key].append(match.liveInfo[key])
+                else:
+                    for key in savedMatch['LiveInfo']:
+                        savedMatch['LiveInfo'][key].append(match.liveInfo[key])
+
+        self.saveDataFile(self.matches)
+
+    def loadDataFile(self) -> dict:
+        datafile = self.projectDir / 'dataFiles' / 'matchData' / 'data.json'
+        try:
+            with open(datafile, 'r') as fp:
+                data = json.load(fp)
+        except FileNotFoundError:
+            data = {}
+        return data
+
+    def saveDataFile(self, data: dict):
+        datafile = self.projectDir / 'dataFiles' / 'matchData' / 'data.json'
+        with open(datafile, 'w') as fp:
+            json.dump(data, fp)
+
+
+    def parseMatchData(self, country_code: str=None) -> List:
+
+        data = []
+        competition = ""
+
+        try:
+            competition = self.countryURLS[country_code]
+        except KeyError:
+            if not country_code == None:
+                print('Not a valid country code, cannot return matches')
+                return data
+        try:
+            data = self._requests(competition)[0]['events']
+        except KeyError:
+            print("KeyError: No events retrieved from the site")
+            return data
+
+        return data
 
 
     def getMatchIds(self, country_code:str=None) -> list:
@@ -82,6 +185,7 @@ class ApiBase(abc.ABC):
                     'matchId': event['event']['id'],
                     'homeTeam': event['event']['homeName'],
                     'awayTeam': event['event']['awayName'],
+                    'state': event['event']['state'],
 
                 }
             )
@@ -181,49 +285,6 @@ class ApiKambi(ApiBase):
                 }
             )
         return odds
-
-    @staticmethod
-    def _live_result_(event: Dict) -> Dict:
-        """ Parse the raw json requests for double chance """
-        odds = {}
-
-        if event['event']['state'] != 'STARTED':
-            """Check if match has started"""
-            return odds
-        if not event['liveData']['matchClock']['running']:
-            """Check if match is not in a break"""
-            return odds
-        try:
-            full_time_result = {
-                '1': event['betOffers'][0]['outcomes'][0].get('odds'),
-                'X': event['betOffers'][0]['outcomes'][1].get('odds'),
-                '2': event['betOffers'][0]['outcomes'][2].get('odds'),
-            }
-        except IndexError:
-            full_time_result = {'1': None,
-                                'X': None,
-                                '2': None,
-            }
-
-        # odds.append(full_time_result)
-        odds = {
-                'time': event['liveData']['matchClock']['minute'],
-                # 'home_team': event['event']['homeName'],
-                # 'away_team': event['event']['awayName'],
-                '1': full_time_result['1'],
-                'X': full_time_result['X'],
-                '2':  full_time_result['2'],
-            }
-
-
-        print("inside fucntion live result")
-
-        return odds
-
-
-    @staticmethod
-    def _time_(data: Dict) -> List:
-        """ Parse the raw json requests for double chance """
 
     def _requests(self, competition: str, market: str = 'IT') -> Tuple[Dict]:
         """Build URL starting from country and league and request data for
