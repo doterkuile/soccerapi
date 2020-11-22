@@ -1,0 +1,14 @@
+league: eredivisie
+league_id: 88
+databaseFile: '/dataFiles/matchData/eredivisie.json'
+seasons:
+    - 2011
+    - 2012
+    - 2013
+    - 2014
+    - 2015
+    - 2016
+    - 2017
+    - 2018
+api-host: 'https://v3.football.api-sports.io/'
+api-key: '40e5783128da0bd975e0795e297b6341'

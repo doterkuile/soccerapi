@@ -1,51 +1,73 @@
-import requests
 from pathlib import Path
+from soccerapi.api import LeagueDatabase
 import json
 
-def seasonsToRounds(seasonFixtures: list) -> dict:
-    roundFixtures = {}
-    for fixture in seasonFixtures:
-        round = fixture['league']['round'].split('-')[-1]
-        if round not in roundFixtures:
-            roundFixtures[round] = [fixture]
-        else:
-            roundFixtures[round].append(fixture)
+def main():
+    projectDir = Path('.')
+    configFile = projectDir / "config" / "eredivisie.yaml"
+    database = LeagueDatabase(configFile)
 
-    return roundFixtures
+    # saveFile = True
+    seasons = [2011]
 
+    # Setup seasons
+    database.requestSeasons(database.seasons)
 
-projectDir = Path('.')
-saveFile: bool = True
+    # Setup final table for each season
+    database.addFinalTable(database.seasons)
 
-league = ['eredivisie']
-seasons = ['2018']
-baseUrl = "https://v3.football.api-sports.io/"
-querystring = {"timezone": "Europe/Amsterdam"}
+    # Save file
+    if saveFile:
+        database.saveDataBaseFile()
 
-headers = {
-    'x-rapidapi-host': baseUrl,
-    'x-rapidapi-key': "40e5783128da0bd975e0795e297b6341",
+def requestTeamStanding():
+    projectDir = Path('.')
+    configFile = projectDir / "config" / "eredivisie.yaml"
+    database = LeagueDatabase(configFile)
+    querySpecificStr = '/standings?league=88&season=2018'
+    url = database.dataHeaders['x-rapidapi-host'] + querySpecificStr
+    data = database.requestData(url)
+    return data
 
-}
-
-for season in seasons:
-    querySpecificUrl = "fixtures?season=2018&league=88"
-    url = baseUrl + querySpecificUrl
-
-    response = requests.request("GET", url, headers=headers)
-
-    roundData = response.json()
-    roundData = seasonsToRounds(response.json()["response"])
-    data = {
-        'season': season,
-        'fixtures': response.json()["response"],
-    }
+def teamstandings(data):
 
 
-fileName = querySpecificUrl + ".json"
-fileName = fileName.replace("/", "-").replace("&","-").replace("=","-").replace("?","-")
-datafile = projectDir / 'dataFiles' / 'matchData' / fileName
-with open(datafile, 'w') as fp:
-    json.dump(data, fp)
+
+    table = data[0]['league']['standings'][0]
+    teams = []
+    finalTable = {}
+    for place in table:
+        team = {
+            'id': place['team']['id'],
+            'name': place['team']['name'],
+        }
+        teams.append(team)
+        finalTable[place['team']['id']] = place['rank']
+
+    print("finaTable and Rank")
+
+def loadFile(fileName:str):
+    data = []
+    try:
+        with open(fileName) as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        print("Database does not exist yet")
+        data = []
+        pass
+    return data
+
+def saveFile(fileName:str, data):
+    with open(fileName, 'w') as file:
+        json.dump(data, file)
+
+
+if __name__ == "__main__":
+    main()
+    # datafile = './dataFiles/matchData/eredivisie.json'
+    # data = loadFile(datafile)
+    # print("hoi")
+
+
 
 
